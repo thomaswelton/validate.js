@@ -82,7 +82,7 @@
             var field = fields[i];
 
             // If passed in incorrectly, we need to skip the field.
-            if (!field.name || !field.rules) {
+            if (!field.field || !field.rules) {
                 continue;
             }
 
@@ -90,9 +90,9 @@
              * Build the master fields array that has all the information needed to validate
              */
 
-            this.fields[field.name] = {
-                name: field.name,
-                display: field.display || field.name,
+            this.fields[field.field] = {
+                name: field.field,
+                display: field.label || field.field,
                 rules: field.rules,
                 id: null,
                 type: null,
