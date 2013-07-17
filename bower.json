@@ -1,0 +1,10 @@
+{
+  "name": "validate",
+  "version": "1.2.2",
+  "main": "validate.js",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "components"
+  ]
+}

@@ -1,5 +1,5 @@
 /*
- * validate.js 1.2
+ * validate.js 1.2.2
  * Copyright (c) 2011 Rick Harrison, http://rickharrison.me
  * validate.js is open sourced under the MIT license.
  * Portions of validate.js are inspired by CodeIgniter.
@@ -16,6 +16,7 @@
         messages: {
             required: 'The %s field is required.',
             matches: 'The %s field does not match the %s field.',
+            default: 'The %s field is still set to default, please change.',
             valid_email: 'The %s field must contain a valid email address.',
             valid_emails: 'The %s field must contain all valid email addresses.',
             min_length: 'The %s field must be at least %s characters in length.',
@@ -33,8 +34,9 @@
             is_natural_no_zero: 'The %s field must contain a number greater than zero.',
             valid_ip: 'The %s field must contain a valid IP.',
             valid_base64: 'The %s field must contain a base64 string.',
-            valid_credit_card: 'The %s field must contain a vaild credit card number',
-            is_file_type: 'The %s field must contain only %s files.'
+            valid_credit_card: 'The %s field must contain a valid credit card number.',
+            is_file_type: 'The %s field must contain only %s files.',
+            valid_url: 'The %s field must contain a valid URL.'
         },
         callback: function(errors) {
 
@@ -49,20 +51,21 @@
         numericRegex = /^[0-9]+$/,
         integerRegex = /^\-?[0-9]+$/,
         decimalRegex = /^\-?[0-9]*\.?[0-9]+$/,
-        emailRegex = /^[a-zA-Z0-9.!#$%&amp;'*+-/=?\^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/,
+        emailRegex = /^[a-zA-Z0-9.!#$%&amp;'*+\-\/=?\^_`{|}~\-]+@[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*$/,
         alphaRegex = /^[a-z]+$/i,
         alphaNumericRegex = /^[a-z0-9]+$/i,
-        alphaDashRegex = /^[a-z0-9_-]+$/i,
+        alphaDashRegex = /^[a-z0-9_\-]+$/i,
         naturalRegex = /^[0-9]+$/i,
         naturalNoZeroRegex = /^[1-9][0-9]*$/i,
         ipRegex = /^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})$/i,
         base64Regex = /[^a-zA-Z0-9\/\+=]/i,
-        numericDashRegex = /^[\d\-\s]+$/;
+        numericDashRegex = /^[\d\-\s]+$/,
+        urlRegex = /^((http|https):\/\/(\w+:{0,1}\w*@)?(\S+)|)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?$/;
 
     /*
      * The exposed public object to validate a form:
      *
-     * @param formName - String - The name attribute of the form (i.e. <form name="myForm"></form>)
+     * @param formNameOrNode - String - The name attribute of the form (i.e. <form name="myForm"></form>) or node of the form element
      * @param fields - Array - [{
      *     name: The name of the element (i.e. <input name="myField" />)
      *     display: 'Field Name'
@@ -73,11 +76,11 @@
      *     @argument event - The javascript event
      */
 
-    var FormValidator = function(formName, fields, callback) {
+    var FormValidator = function(formNameOrNode, fields, callback) {
         this.callback = callback || defaults.callback;
         this.errors = [];
         this.fields = {};
-        this.form = document.forms[formName] || {};
+        this.form = this._formByNameOrNode(formNameOrNode) || {};
         this.messages = {};
         this.handlers = {};
 
@@ -85,7 +88,7 @@
             var field = fields[i];
 
             // If passed in incorrectly, we need to skip the field.
-            if (!field.field || !field.rules) {
+            if ((!field.name && !field.names) || !field.rules) {
                 continue;
             }
 
@@ -93,27 +96,27 @@
              * Build the master fields array that has all the information needed to validate
              */
 
-            this.fields[field.field] = {
-                name: field.field,
-                display: field.display || field.field,
-                rules: field.rules,
-                id: null,
-                type: null,
-                value: null,
-                checked: null
-            };
+            if (field.names) {
+                for (var j = 0; j < field.names.length; j++) {
+                    this._addField(field, field.names[j]);
+                }
+            } else {
+                this._addField(field, field.name);
+            }
         }
 
         /*
          * Attach an event callback for the form submission
          */
 
+        var _onsubmit = this.form.onsubmit;
+
         this.form.onsubmit = (function(that) {
-            return function(event) {
+            return function(evt) {
                 try {
-                    return that._validateForm(event);
+                    return that._validateForm(evt) && (_onsubmit === undefined || _onsubmit());
                 } catch(e) {}
-            }
+            };
         })(this);
     },
 
@@ -161,42 +164,68 @@
 
     /*
      * @private
+     * Determines if a form dom node was passed in or just a string representing the form name
+     */
+
+    FormValidator.prototype._formByNameOrNode = function(formNameOrNode) {
+        return (typeof formNameOrNode === 'object') ? formNameOrNode : document.forms[formNameOrNode];
+    };
+
+    /*
+     * @private
+     * Adds a file to the master fields array
+     */
+
+    FormValidator.prototype._addField = function(field, nameValue)  {
+        this.fields[nameValue] = {
+            name: nameValue,
+            display: field.display || nameValue,
+            rules: field.rules,
+            id: null,
+            type: null,
+            value: null,
+            checked: null
+        };
+    };
+
+    /*
+     * @private
      * Runs the validation when the form is submitted.
      */
 
-    FormValidator.prototype._validateForm = function(event) {
+    FormValidator.prototype._validateForm = function(evt) {
         this.errors = [];
 
         for (var key in this.fields) {
             if (this.fields.hasOwnProperty(key)) {
                 var field = this.fields[key] || {},
-                    element = this.form[field.field];
+                    element = this.form[field.name];
 
                 if (element && element !== undefined) {
                     field.id = attributeValue(element, 'id');
                     field.type = (element.length > 0) ? element[0].type : element.type;
                     field.value = attributeValue(element, 'value');
                     field.checked = attributeValue(element, 'checked');
+
+                    /*
+                     * Run through the rules for each field.
+                     */
+
+                    this._validateField(field);
                 }
-
-                /*
-                 * Run through the rules for each field.
-                 */
-
-                this._validateField(field);
             }
         }
 
         if (typeof this.callback === 'function') {
-            this.callback(this.errors, event);
+            this.callback(this.errors, evt);
         }
 
         if (this.errors.length > 0) {
-            if (event && event.preventDefault) {
-                event.preventDefault();
-            } else {
-                // IE6 doesn't pass in an event parameter so return false
-                return false;
+            if (evt && evt.preventDefault) {
+                evt.preventDefault();
+            } else if (event) {
+                // IE uses the global event variable
+                event.returnValue = false;
             }
         }
 
@@ -212,10 +241,10 @@
         var rules = field.rules.split('|');
 
         /*
-         * If the value is null and not required, we don't need to run through validation
+         * If the value is null and not required, we don't need to run through validation, unless the rule is a callback, but then only if the value is not null
          */
 
-        if (field.rules.indexOf('required') === -1 && (!field.value || field.value === '' || field.value === undefined)) {
+        if ( (field.rules.indexOf('required') === -1 && (!field.value || field.value === '' || field.value === undefined)) && (field.rules.indexOf('callback_') === -1 || field.value === null) ) {
             return;
         }
 
@@ -251,7 +280,7 @@
                 method = method.substring(9, method.length);
 
                 if (typeof this.handlers[method] === 'function') {
-                    if (this.handlers[method].apply(this, [field.value]) === false) {
+                    if (this.handlers[method].apply(this, [field.value, param]) === false) {
                         failed = true;
                     }
                 }
@@ -276,7 +305,7 @@
 
                 this.errors.push({
                     id: field.id,
-                    name: field.field,
+                    name: field.name,
                     message: message,
                     rule: method
                 });
@@ -301,6 +330,10 @@
             }
 
             return (value !== null && value !== '');
+        },
+        
+        default: function(field, defaultName){
+            return field.value !== defaultName;
         },
 
         matches: function(field, matchName) {
@@ -382,7 +415,7 @@
         },
 
         numeric: function(field) {
-            return (decimalRegex.test(field.value));
+            return (numericRegex.test(field.value));
         },
 
         integer: function(field) {
@@ -408,30 +441,34 @@
         valid_base64: function(field) {
             return (base64Regex.test(field.value));
         },
-        
+
+        valid_url: function(field) {
+            return (urlRegex.test(field.value));
+        },
+
         valid_credit_card: function(field){
             // Luhn Check Code from https://gist.github.com/4075533
             // accept only digits, dashes or spaces
             if (!numericDashRegex.test(field.value)) return false;
-         
+
             // The Luhn Algorithm. It's so pretty.
             var nCheck = 0, nDigit = 0, bEven = false;
             var strippedField = field.value.replace(/\D/g, "");
-        
+
             for (var n = strippedField.length - 1; n >= 0; n--) {
-                var cDigit = strippedField.charAt(n),
+                var cDigit = strippedField.charAt(n);
                 nDigit = parseInt(cDigit, 10);
                 if (bEven) {
                     if ((nDigit *= 2) > 9) nDigit -= 9;
                 }
-                
+
                 nCheck += nDigit;
                 bEven = !bEven;
             }
-         
-            return (nCheck % 10) == 0;
+
+            return (nCheck % 10) === 0;
         },
-        
+
         is_file_type: function(field,type) {
             if (field.type !== 'file') {
                 return true;
